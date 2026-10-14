@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState, useRef, useEffect } from "react";
+import { memo, useCallback, useMemo, useState, useRef, useEffect, Fragment } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { Dropdown } from "antd";
@@ -12,15 +12,26 @@ import {
   MessageSquarePlus,
   Search,
   GitFork,
+  GripVertical,
   Eye,
   EyeOff,
 } from "lucide-react";
 import type { Session } from "../hooks/useSessions";
 import type { OctopAgent } from "../../../context/AgentContext";
 import { isAgentChatReady } from "../../../utils/agentError";
+import {
+  applyListOrder,
+  groupSequence,
+  joinSequence,
+  moveIdBy,
+  moveIdTo,
+} from "../../../utils/listOrder";
+import { useListOrder } from "../../../hooks/useListOrder";
 import { confirmDeleteConversation } from "../utils/deleteConversation";
 import { ExpertIcon } from "../../Experts/components/iconForName";
 import { useHiddenSharedExperts } from "../hooks/useHiddenSharedExperts";
+import { useDragSortReorder } from "../hooks/useDragSortReorder";
+import { agentOrderMenuItems, type AgentOrdering } from "./agentOrderMenu";
 import SessionChannelIcon from "./SessionChannelIcon";
 import SessionWorkStatusIcon from "./SessionWorkStatusIcon";
 import SharedExpertHint from "./SharedExpertHint";
@@ -239,6 +250,8 @@ interface AgentCardProps {
   activeForkDisabledHint?: string;
   onHide?: () => void;
   liveWorkingIds: ReadonlySet<string>;
+  /** Manual ordering controls (drag handle + pin/move menu); absent when disabled. */
+  ordering?: AgentOrdering;
 }
 
 function ActiveAgentCard({
@@ -260,6 +273,7 @@ function ActiveAgentCard({
   activeForkDisabledHint,
   onHide,
   liveWorkingIds,
+  ordering,
 }: AgentCardProps) {
   const { t } = useTranslation();
   const accent = agent.color || "#6366f1";
@@ -287,13 +301,25 @@ function ActiveAgentCard({
 
   return (
     <div
-      className={styles.agentCardActive}
+      className={`${styles.agentCardActive} ${
+        ordering?.rowClassName ?? ""
+      }`.trim()}
+      {...(ordering?.rowProps ?? {})}
       style={{
         background: `${accent}08`,
         borderColor: `${accent}18`,
       }}
     >
       <div className={styles.agentCardProfile}>
+        {ordering?.handleProps ? (
+          <span
+            className={styles.agentDragHandle}
+            title={t("chat.dragToSort")}
+            {...ordering.handleProps}
+          >
+            <GripVertical size={12} />
+          </span>
+        ) : null}
         <div
           className={styles.agentCardAvatar}
           style={{
@@ -312,11 +338,35 @@ function ActiveAgentCard({
           <div className={styles.agentCardNameRow}>
             <div className={styles.agentNameCluster}>
               <div className={styles.agentCardName}>{agent.name}</div>
+              {ordering?.pinned ? (
+                <span
+                  className={styles.sessionRowPinIndicator}
+                  title={t("chat.unpin")}
+                >
+                  <Pin size={11} strokeWidth={2} />
+                </span>
+              ) : null}
               <TeamChatBadge agent={agent} />
               <SharedExpertHint agent={agent} />
               <RemoteExpertHint agent={agent} />
             </div>
             <AgentUnreadBadge count={agent.unread_count ?? 0} />
+            {ordering ? (
+              <Dropdown
+                menu={{ items: agentOrderMenuItems(t, ordering) }}
+                trigger={["click"]}
+                placement="bottomRight"
+              >
+                <button
+                  type="button"
+                  className={styles.agentRowMore}
+                  aria-label={t("common.more", "More")}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <MoreHorizontal size={15} />
+                </button>
+              </Dropdown>
+            ) : null}
             <button
               type="button"
               className={styles.agentNewChatBtn}
@@ -413,6 +463,8 @@ interface AgentRowProps {
   onNewChat?: () => void;
   onHide?: () => void;
   onUnhide?: () => void;
+  /** Manual ordering controls; absent in hidden-expert views / search. */
+  ordering?: AgentOrdering;
 }
 
 function InactiveAgentRow({
@@ -421,12 +473,16 @@ function InactiveAgentRow({
   onNewChat,
   onHide,
   onUnhide,
+  ordering,
 }: AgentRowProps) {
   const { t } = useTranslation();
   const accent = agent.color || "#6366f1";
 
   return (
-    <div className={styles.agentRowWrap}>
+    <div
+      className={`${styles.agentRowWrap} ${ordering?.rowClassName ?? ""}`.trim()}
+      {...(ordering?.rowProps ?? {})}
+    >
       <div
         className={styles.agentRow}
         onClick={onSelect}
@@ -439,6 +495,15 @@ function InactiveAgentRow({
           }
         }}
       >
+        {ordering?.handleProps ? (
+          <span
+            className={styles.agentDragHandle}
+            title={t("chat.dragToSort")}
+            {...ordering.handleProps}
+          >
+            <GripVertical size={12} />
+          </span>
+        ) : null}
         <div
           className={styles.agentRowAvatar}
           style={{ color: accent, background: `${accent}12` }}
@@ -453,11 +518,35 @@ function InactiveAgentRow({
           <div className={styles.agentRowNameRow}>
             <div className={styles.agentNameCluster}>
               <div className={styles.agentRowName}>{agent.name}</div>
+              {ordering?.pinned ? (
+                <span
+                  className={styles.sessionRowPinIndicator}
+                  title={t("chat.unpin")}
+                >
+                  <Pin size={11} strokeWidth={2} />
+                </span>
+              ) : null}
               <TeamChatBadge agent={agent} />
               <SharedExpertHint agent={agent} />
               <RemoteExpertHint agent={agent} />
             </div>
             <AgentUnreadBadge count={agent.unread_count ?? 0} />
+            {ordering ? (
+              <Dropdown
+                menu={{ items: agentOrderMenuItems(t, ordering) }}
+                trigger={["click"]}
+                placement="bottomRight"
+              >
+                <button
+                  type="button"
+                  className={styles.agentRowMore}
+                  aria-label={t("common.more", "More")}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <MoreHorizontal size={15} />
+                </button>
+              </Dropdown>
+            ) : null}
             {onNewChat ? (
               <button
                 type="button"
@@ -548,6 +637,15 @@ export default function SessionList({
   const [showingHidden, setShowingHidden] = useState(false);
   const { filterVisible, pickHidden, hide, unhide, canHide } =
     useHiddenSharedExperts();
+  const {
+    state: listOrderState,
+    write: writeListOrderState,
+    togglePin,
+  } = useListOrder();
+  const pinnedSet = useMemo(
+    () => new Set(listOrderState.pinned),
+    [listOrderState.pinned],
+  );
 
   const hiddenAgents = useMemo(
     () => [...pickHidden(agents)].sort((a, b) => b.id - a.id),
@@ -558,12 +656,92 @@ export default function SessionList({
     const visible = filterVisible(agents, {
       keepAgentIds: activeAgentId ? [activeAgentId] : [],
     });
-    return [...visible].sort((a, b) => b.id - a.id);
-  }, [agents, filterVisible, activeAgentId]);
+    const base = [...visible].sort((a, b) => b.id - a.id);
+    return applyListOrder(base, listOrderState, (a) => a.agent_id);
+  }, [agents, filterVisible, activeAgentId, listOrderState]);
 
   // Leave the hidden-only view once nothing remains hidden.
   const viewingHidden = showingHidden && hiddenAgents.length > 0;
   const agentsToRender = viewingHidden ? hiddenAgents : sortedAgents;
+
+  // Length of the pinned block at the head of the rendered list.
+  const pinnedCount = useMemo(() => {
+    let n = 0;
+    for (const agent of agentsToRender) {
+      if (!pinnedSet.has(agent.agent_id)) break;
+      n += 1;
+    }
+    return n;
+  }, [agentsToRender, pinnedSet]);
+
+  // Ordering is unavailable while searching or browsing hidden experts.
+  const orderingEnabled = !searchQuery.trim() && !viewingHidden;
+
+  const drag = useDragSortReorder({
+    enabled: orderingEnabled,
+    onReorder: (fromId, toId, placement) => {
+      const seq = sortedAgents.map((a) => a.agent_id);
+      const next = moveIdTo(seq, fromId, toId, placement);
+      if (!next) return;
+      writeListOrderState({ ...listOrderState, order: next });
+    },
+  });
+
+  const dragRowClass = useCallback(
+    (id: string) => {
+      if (drag.draggingId === id) return styles.dragRowActive;
+      if (drag.draggingId && drag.overId === id) {
+        return drag.placement === "before"
+          ? styles.dragRowDropBefore
+          : styles.dragRowDropAfter;
+      }
+      return "";
+    },
+    [drag],
+  );
+
+  /** Menu 上移/下移: move within the item's own group (pinned ↔ pinned). */
+  const moveAgent = useCallback(
+    (id: string, delta: -1 | 1) => {
+      const seq = sortedAgents.map((a) => a.agent_id);
+      const groups = groupSequence(seq, pinnedSet);
+      const inPinned = pinnedSet.has(id);
+      const nextGroup = moveIdBy(
+        inPinned ? groups.pinnedSeq : groups.restSeq,
+        id,
+        delta,
+      );
+      if (!nextGroup) return; // at group boundary — no-op
+      writeListOrderState({
+        ...listOrderState,
+        order: joinSequence(
+          inPinned
+            ? { ...groups, pinnedSeq: nextGroup }
+            : { ...groups, restSeq: nextGroup },
+        ),
+      });
+    },
+    [sortedAgents, pinnedSet, listOrderState, writeListOrderState],
+  );
+
+  const buildOrdering = useCallback(
+    (agent: OctopAgent): AgentOrdering => {
+      const id = agent.agent_id;
+      return {
+        pinned: pinnedSet.has(id),
+        enabled: orderingEnabled,
+        rowProps: orderingEnabled ? drag.getRowProps(id) : undefined,
+        handleProps: orderingEnabled
+          ? (drag.getHandleProps(id) as AgentOrdering["handleProps"])
+          : undefined,
+        rowClassName: orderingEnabled ? dragRowClass(id) : "",
+        onTogglePin: () => togglePin(id),
+        onMoveUp: () => moveAgent(id, -1),
+        onMoveDown: () => moveAgent(id, 1),
+      };
+    },
+    [pinnedSet, orderingEnabled, drag, dragRowClass, moveAgent, togglePin],
+  );
 
   const expandedAgentId = useMemo(
     () =>
@@ -624,45 +802,63 @@ export default function SessionList({
                   onUnhide={() => unhide(agent.agent_id)}
                 />
               ))
-            : agentsToRender.map((agent) => {
+            : agentsToRender.map((agent, index) => {
                 const expanded = agent.agent_id === expandedAgentId;
-                if (expanded) {
+                const showPinnedDivider =
+                  orderingEnabled &&
+                  index === pinnedCount &&
+                  pinnedCount > 0 &&
+                  pinnedCount < agentsToRender.length;
+                const row = (() => {
+                  if (expanded) {
+                    return (
+                      <ActiveAgentCard
+                        agent={agent}
+                        sessions={sessions}
+                        activeId={activeId}
+                        searchQuery={searchQuery}
+                        hasMore={hasMore}
+                        loadingMore={loadingMore}
+                        onLoadMore={onLoadMore}
+                        onFetchAllSessions={onFetchAllSessions}
+                        onSelect={onSelect}
+                        onNewChat={onNewChat}
+                        onDelete={onDelete}
+                        onRename={onRename}
+                        onPin={onPin}
+                        onFork={onFork}
+                        activeForkDisabled={activeForkDisabled}
+                        activeForkDisabledHint={activeForkDisabledHint}
+                        onHide={
+                          canHide(agent) ? () => hide(agent.agent_id) : undefined
+                        }
+                        liveWorkingIds={liveWorkingIds}
+                        ordering={buildOrdering(agent)}
+                      />
+                    );
+                  }
                   return (
-                    <ActiveAgentCard
-                      key={agent.agent_id}
+                    <InactiveAgentRow
                       agent={agent}
-                      sessions={sessions}
-                      activeId={activeId}
-                      searchQuery={searchQuery}
-                      hasMore={hasMore}
-                      loadingMore={loadingMore}
-                      onLoadMore={onLoadMore}
-                      onFetchAllSessions={onFetchAllSessions}
-                      onSelect={onSelect}
-                      onNewChat={onNewChat}
-                      onDelete={onDelete}
-                      onRename={onRename}
-                      onPin={onPin}
-                      onFork={onFork}
-                      activeForkDisabled={activeForkDisabled}
-                      activeForkDisabledHint={activeForkDisabledHint}
+                      onSelect={() => onAgentSelect(agent.agent_id)}
+                      onNewChat={() => onNewChat(agent.agent_id)}
                       onHide={
                         canHide(agent) ? () => hide(agent.agent_id) : undefined
                       }
-                      liveWorkingIds={liveWorkingIds}
+                      ordering={buildOrdering(agent)}
                     />
                   );
-                }
+                })();
                 return (
-                  <InactiveAgentRow
-                    key={agent.agent_id}
-                    agent={agent}
-                    onSelect={() => onAgentSelect(agent.agent_id)}
-                    onNewChat={() => onNewChat(agent.agent_id)}
-                    onHide={
-                      canHide(agent) ? () => hide(agent.agent_id) : undefined
-                    }
-                  />
+                  <Fragment key={agent.agent_id}>
+                    {showPinnedDivider ? (
+                      <div
+                        className={styles.pinnedGroupDivider}
+                        role="separator"
+                      />
+                    ) : null}
+                    {row}
+                  </Fragment>
                 );
               })}
           {hiddenAgents.length > 0 ? (
