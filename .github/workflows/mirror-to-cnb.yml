@@ -1,7 +1,7 @@
 name: mirror-to-cnb
 on:
   push:
-    branches: ["**"]
+    branches: [main]
 jobs:
   sync:
     runs-on: ubuntu-latest
