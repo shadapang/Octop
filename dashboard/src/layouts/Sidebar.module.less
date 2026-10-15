@@ -83,48 +83,28 @@
   transition: color var(--fn-transition-fast);
 }
 
-/* Collapsed-panel expander. Carries the brand mark so the hidden history
-   stays discoverable instead of relying on a thin chevron. */
+/* Secondary expander in the nav rail. The primary, always-visible one is the
+   brand mark on the chat panel's edge (RailEdgeControl variant="brand"). */
 .chatRailExpandBtn {
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   margin: 6px 6px 6px 0;
-  border: 1px solid color-mix(in srgb, #ff0004 22%, transparent);
+  border: none;
   border-radius: var(--fn-radius-md);
-  background: color-mix(in srgb, #ff0004 8%, transparent);
+  background: transparent;
+  color: var(--fn-text-tertiary);
   cursor: pointer;
   transition:
     background var(--fn-transition-fast),
-    border-color var(--fn-transition-fast),
-    transform var(--fn-transition-fast);
+    color var(--fn-transition-fast);
 
   &:hover {
-    background: color-mix(in srgb, #ff0004 14%, transparent);
-    border-color: color-mix(in srgb, #ff0004 38%, transparent);
-  }
-
-  &:active {
-    transform: scale(0.94);
-  }
-
-  &:focus-visible {
-    outline: 2px solid color-mix(in srgb, #ff0004 55%, transparent);
-    outline-offset: 1px;
-  }
-}
-
-/* The mark is the affordance; dim it slightly so it does not outshout the
-   active nav item, but keep it clearly above the tertiary text grey. */
-.chatRailExpandMark {
-  opacity: 0.82;
-  transition: opacity var(--fn-transition-fast);
-
-  .chatRailExpandBtn:hover & {
-    opacity: 1;
+    background: color-mix(in srgb, var(--fn-text-primary) 8%, transparent);
+    color: var(--fn-text-primary);
   }
 }
 

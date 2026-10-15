@@ -178,6 +178,9 @@ export default function ChatSidebarPanel({
           expanded={sidebarOpen}
           onToggle={handleRailToggle}
           side={sidebarOpen ? "end" : "start"}
+          /* Brand mark: a hover-only arrow leaves the collapsed session
+             history looking permanently gone. */
+          variant="brand"
           /* Collapsed: share the nav rail divider — avoid a second gapped line. */
           showLine={sidebarOpen}
           className={
