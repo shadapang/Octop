@@ -47,6 +47,10 @@
   gap: 6px;
   flex: 1;
   min-width: 0;
+  /* Badges keep their intrinsic width; when the row is too narrow for name +
+     badge the name ellipsises. Without this the flex line spills past the
+     sidebar edge instead of clipping inside it. */
+  overflow: hidden;
 }
 
 .agentNewChatBtn {
@@ -97,9 +101,12 @@
   font-weight: 500;
   color: var(--fn-text-primary);
   line-height: 1.35;
-  /* Name keeps a readable floor; badges shrink before the name does. */
+  /* The name absorbs the squeeze; badges keep their full width.
+     8em (~104px at 13px) covers the longest current expert name with room
+     for the team badge at the 260px sidebar minimum; longer names
+     ellipsize instead of the whole row collapsing to a single glyph. */
   flex: 1 1 auto;
-  min-width: 6em;
+  min-width: 8em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -126,9 +133,9 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  flex-shrink: 1;
+  flex-shrink: 0;
+  max-width: 100%;
   min-width: 0;
-  max-width: 12em;
   padding: 0 5px;
   height: 16px;
   border-radius: 4px;
@@ -143,7 +150,9 @@
 }
 
 .remoteExpertFlagCompact {
-  max-width: none;
+  /* Compact is used where the connection name carries little value; keep the
+     cap so a long name cannot push the agent name out of the row. */
+  max-width: 9em;
   padding: 0 4px;
   gap: 0;
 }
@@ -166,11 +175,16 @@
 .teamChatBadge {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 3px;
-  flex-shrink: 1;
-  min-width: 0;
+  /* Badges carry meaning in as few glyphs as they can. Letting them shrink is
+     what clipped the word down to a single character; the agent name is the
+     element that should absorb the squeeze instead. */
+  flex-shrink: 0;
   max-width: 100%;
-  padding: 0 6px;
+  /* Tight padding: the label is a single glyph, so 6px either side spent more
+     row width than it was worth. */
+  padding: 0 4px;
   height: 16px;
   border-radius: 4px;
   font-size: 10px;
@@ -532,9 +546,10 @@
   font-weight: 400;
   color: var(--fn-text-secondary);
   line-height: 1.35;
-  /* Name keeps a readable floor; badges shrink before the name does. */
+  /* The name absorbs the squeeze; badges keep their full width. 8em covers
+     the longest current expert name at the 260px sidebar minimum. */
   flex: 1 1 auto;
-  min-width: 6em;
+  min-width: 8em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
