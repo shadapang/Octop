@@ -291,9 +291,12 @@ function ChatPageInner() {
     void loadMoreSessions(activeThreadId ?? undefined);
   }, [loadMoreSessions, activeThreadId]);
 
-  const handleFetchAllSessions = useCallback(() => {
-    void fetchAllSessions(activeThreadId ?? undefined);
-  }, [fetchAllSessions, activeThreadId]);
+  // Returns the underlying success flag so the sidebar can offer a retry when a
+  // background search fetch fails instead of searching a stale slice forever.
+  const handleFetchAllSessions = useCallback(
+    () => fetchAllSessions(activeThreadId ?? undefined),
+    [fetchAllSessions, activeThreadId],
+  );
 
   useEffect(() => {
     if (routeAgentId && routeAgentId !== activeAgentId) {

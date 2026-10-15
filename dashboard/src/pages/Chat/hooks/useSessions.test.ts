@@ -2,9 +2,11 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   resetSessionStoreForTests,
+  setSearchActive,
   sortSessions,
   toSession,
   useSessions,
+  SESSION_PAGE_SIZE,
   type Session,
 } from "./useSessions";
 
@@ -178,5 +180,86 @@ describe("useSessions agent switch", () => {
     });
     expect(probe).toBe("found");
     expect(listMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useSessions search widening", () => {
+  const AGENT = "agent-search";
+
+  /** Stand-in for a real paginated endpoint: honours the requested limit. */
+  function paginateFixture(total: number) {
+    listMock.mockImplementation(async (_agentId: string, limit: number) =>
+      Array.from({ length: total }, (_, i) =>
+        threadRow(`thr_${String(i).padStart(3, "0")}`, {
+          title: `session ${i}`,
+        }),
+      ).slice(0, limit),
+    );
+  }
+
+  beforeEach(() => {
+    resetSessionStoreForTests();
+    listMock.mockReset();
+  });
+
+  afterEach(() => {
+    resetSessionStoreForTests();
+  });
+
+  it("reaches sessions past the first page instead of stopping at 50", async () => {
+    paginateFixture(120);
+
+    const { result } = renderHook(() => useSessions(AGENT));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // The sidebar starts paginated.
+    expect(result.current.sessions.length).toBe(SESSION_PAGE_SIZE);
+
+    await act(async () => {
+      setSearchActive(AGENT, true);
+      await result.current.fetchAllSessions();
+    });
+
+    // A single 50-row request cannot reach row #120, so paging is required.
+    expect(listMock.mock.calls.length).toBeGreaterThan(2);
+    expect(result.current.sessions.length).toBe(120);
+  });
+
+  it("restores the paginated view once the search clears", async () => {
+    paginateFixture(120);
+
+    const { result } = renderHook(() => useSessions(AGENT));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      setSearchActive(AGENT, true);
+      await result.current.fetchAllSessions();
+    });
+    expect(result.current.sessions.length).toBe(120);
+
+    // The old code stored the fetched count as the user's loaded limit, so one
+    // search left the sidebar stuck at 120 rows with no way back.
+    await act(async () => {
+      setSearchActive(AGENT, false);
+    });
+    expect(result.current.sessions.length).toBe(SESSION_PAGE_SIZE);
+
+    // Searching pages to exhaustion sets hasMore=false. Clearing must bring
+    // the "load more" affordance back, or the list can never be paged again.
+    expect(result.current.hasMore).toBe(true);
+  });
+
+  it("reports failure so the search box can offer a retry", async () => {
+    listMock.mockRejectedValue(new Error("boom"));
+
+    const { result } = renderHook(() => useSessions(AGENT));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      setSearchActive(AGENT, true);
+      ok = await result.current.fetchAllSessions();
+    });
+    expect(ok).toBe(false);
   });
 });

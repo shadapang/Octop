@@ -4,8 +4,9 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import AvatarDropdown from "../components/AvatarDropdown";
 import AppVersionBadge from "../components/AppVersionBadge";
+import OctopMark from "../components/OctopMark";
 import CurrentVersionBadge from "../components/CurrentVersionBadge";
-import { ArrowRightLeft, ChevronDown, X } from "lucide-react";
+import { ChevronDown, X } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useLayoutMode } from "../context/LayoutModeContext";
 import { useUserRole } from "../hooks/useUserRole";
@@ -238,7 +239,9 @@ function NavItemButton({
           aria-label={t("chat.expandHistorySidebar", "展开对话历史")}
           title={t("chat.expandHistorySidebar", "展开对话历史")}
         >
-          <ArrowRightLeft size={14} strokeWidth={1.8} aria-hidden />
+          {/* The collapsed panel leaves no visible affordance of its own, so
+              the way back to the history is marked with the brand itself. */}
+          <OctopMark size={20} className={styles.chatRailExpandMark} />
         </button>
       ) : null}
     </div>

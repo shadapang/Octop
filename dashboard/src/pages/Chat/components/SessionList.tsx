@@ -16,7 +16,7 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
-import type { Session } from "../hooks/useSessions";
+import { setSearchActive, type Session } from "../hooks/useSessions";
 import type { OctopAgent } from "../../../context/AgentContext";
 import { isAgentChatReady } from "../../../utils/agentError";
 import {
@@ -239,7 +239,7 @@ interface AgentCardProps {
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
-  onFetchAllSessions: () => void;
+  onFetchAllSessions: () => Promise<boolean>;
   onSelect: (sessionId: string, agentId: string) => void;
   onNewChat: (agentId: string) => void;
   onDelete: (id: string, compact: boolean) => void | Promise<boolean | void>;
@@ -278,23 +278,33 @@ function ActiveAgentCard({
   const { t } = useTranslation();
   const accent = agent.color || "#6366f1";
 
+  // Space-separated terms are ANDed: "refactor 500" matches only rows
+  // containing both. Single-term behaviour is unchanged.
   const filteredSessions = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return sessions;
-    return sessions.filter((s) => s.name.toLowerCase().includes(q));
+    const terms = searchQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return sessions;
+    return sessions.filter((s) => {
+      const hay = s.name.toLowerCase();
+      return terms.every((term) => hay.includes(term));
+    });
   }, [sessions, searchQuery]);
 
-  const fetchAllRequestedRef = useRef(false);
+  // A live search widens the sidebar past the paginated window. The previous
+  // `fetchAllRequestedRef` latch never reset on failure, so one failed fetch
+  // left the box searching a stale slice with no way to recover.
+  const [searchFetchFailed, setSearchFetchFailed] = useState(false);
   useEffect(() => {
+    const agentId = agent.agent_id;
     const searching = Boolean(searchQuery.trim());
     if (!searching) {
-      fetchAllRequestedRef.current = false;
+      setSearchFetchFailed(false);
+      if (agentId) setSearchActive(agentId, false);
       return;
     }
-    if (fetchAllRequestedRef.current) return;
-    fetchAllRequestedRef.current = true;
-    onFetchAllSessions();
-  }, [searchQuery, onFetchAllSessions]);
+    if (!agentId) return;
+    setSearchActive(agentId, true);
+    void onFetchAllSessions().then((ok) => setSearchFetchFailed(!ok));
+  }, [searchQuery, agent.agent_id, onFetchAllSessions]);
 
   const showExpandMore = hasMore && !searchQuery.trim();
   const sessionsEnabled = isAgentChatReady(agent.state);
@@ -337,7 +347,11 @@ function ActiveAgentCard({
         <div className={styles.agentCardInfo}>
           <div className={styles.agentCardNameRow}>
             <div className={styles.agentNameCluster}>
-              <div className={styles.agentCardName}>{agent.name}</div>
+              {/* Long expert names clip in the narrow end of the drag range; keep the
+                      full text reachable on hover. */}
+              <div className={styles.agentCardName} title={agent.name}>
+                {agent.name}
+              </div>
               {ordering?.pinned ? (
                 <span
                   className={styles.sessionRowPinIndicator}
@@ -405,7 +419,14 @@ function ActiveAgentCard({
       </div>
 
       <div className={styles.agentCardSessions}>
-        {!sessionsEnabled ? (
+        {searchFetchFailed ? (
+          <div className={styles.agentCardSessionsEmpty}>
+            {t(
+              "chat.searchFetchFailed",
+              "搜索未能加载全部会话，结果可能不完整",
+            )}
+          </div>
+        ) : !sessionsEnabled ? (
           <div className={styles.agentCardSessionsEmpty}>
             {t("chat.agentNotRunningHint")}
           </div>
@@ -517,7 +538,11 @@ function InactiveAgentRow({
         <div className={styles.agentRowInfo}>
           <div className={styles.agentRowNameRow}>
             <div className={styles.agentNameCluster}>
-              <div className={styles.agentRowName}>{agent.name}</div>
+              {/* At the narrow end of the drag range even the 6em floor loses the
+                      tail of a long name; keep the full text reachable. */}
+            <div className={styles.agentRowName} title={agent.name}>
+              {agent.name}
+            </div>
               {ordering?.pinned ? (
                 <span
                   className={styles.sessionRowPinIndicator}
@@ -599,7 +624,7 @@ interface SessionListProps {
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
-  onFetchAllSessions: () => void;
+  onFetchAllSessions: () => Promise<boolean>;
   onSelect: (sessionId: string, agentId: string) => void;
   onAgentSelect: (agentId: string) => void;
   onNewChat: (agentId: string) => void;
