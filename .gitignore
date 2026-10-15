@@ -114,3 +114,16 @@ fnos/native/app/site-packages/
 docs/superpowers/
 scripts/lh_image_install_octop_tencentos.sh
 .worktrees/
+
+# JiuwenSwarm runtime file operation logs
+.agent_history/
+# Octop agent runtime data - never commit
+/IDENTITY.md
+/SOUL.md
+/USER.md
+/MEMORY.md
+/AGENT.md
+/memory/
+/messages/
+/context/
+/dashboard/590
