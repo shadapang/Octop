@@ -22,21 +22,14 @@
 
   .sidebar {
     height: 100%;
-    /* Vertical line drawn by RailEdgeControl */
+    /* No painted divider between the two rails — they meet edge-to-edge. */
     border-right: none;
   }
 }
 
-.chatRailEdgeOpen {
-  right: -8px;
-}
-
-.chatRailEdgeClosed {
-  /* Align with MainLayout nav RailEdgeControl (edgeEnd: right -8px / width 16px). */
-  left: -8px !important;
-  right: auto !important;
-  width: 16px;
-}
+/* The chat history rail no longer carries its own edge toggle — it lives in
+   the conversation title bar (``chatTitleSidebarToggle``) — so nothing is
+   painted in the collapsed 8px strip. */
 
 .sidebarWrapper {
   z-index: 2;
@@ -260,9 +253,10 @@
 }
 
 .minimalAgentName {
-  /* Name keeps a readable floor; badges shrink before the name does. */
+  /* Name keeps a readable floor; badges shrink before the name does.
+     8em at 14px ≈ 112px keeps CJK expert names readable in the records pane. */
   flex: 1 1 auto;
-  min-width: 6em;
+  min-width: 8em;
   font-size: 14px;
   font-weight: 400;
   line-height: 1.3;
