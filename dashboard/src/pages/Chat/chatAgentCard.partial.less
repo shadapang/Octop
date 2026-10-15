@@ -207,6 +207,50 @@
   gap: 2px;
   padding: 4px 2px 2px;
   border-top: none;
+  /* Allow this column to shrink so the scrollport below can bound its height
+     instead of letting one busy agent push every other expert off-screen. */
+  min-height: 0;
+}
+
+/* Scrollport for an expanded agent's sessions.
+   The pixel clamp is the real bound on height; `overflow-y: auto` only engages
+   once the rows actually exceed it, which is why the JS gate
+   (`overflowsScrollport`) mirrors `SESSION_PREVIEW_LIMIT`. */
+.agentCardSessionsScroll {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  /* Rows keep their own padding; bleed to the scrollport edge so the scrollbar
+     does not visually detach from the list. */
+  margin: 0 -2px;
+  padding: 0 2px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--fn-text-primary) 18%, transparent)
+    transparent;
+}
+
+.agentCardSessionsScroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.agentCardSessionsScroll::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--fn-text-primary) 18%, transparent);
+}
+
+.agentCardSessionsScroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Count of sessions beyond the scrollport, so a truncated list never reads as
+   the complete history. */
+.agentCardSessionsOverflowHint {
+  padding: 3px 4px 1px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--fn-text-quaternary);
 }
 
 .agentCardSessionsEmpty {

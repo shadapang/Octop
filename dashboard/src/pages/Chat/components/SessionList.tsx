@@ -16,7 +16,12 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
-import { setSearchActive, type Session } from "../hooks/useSessions";
+import {
+  overflowsScrollport,
+  setSearchActive,
+  SESSION_PREVIEW_LIMIT,
+  type Session,
+} from "../hooks/useSessions";
 import type { OctopAgent } from "../../../context/AgentContext";
 import { isAgentChatReady } from "../../../utils/agentError";
 import {
@@ -440,25 +445,43 @@ function ActiveAgentCard({
           </div>
         ) : (
           <>
-            {filteredSessions.map((s) => (
-              <SessionItem
-                key={s.id}
-                session={s}
-                isActive={activeId === s.id}
-                workStatus={resolveSessionWorkStatus(s, liveWorkingIds)}
-                onSelect={(id) => onSelect(id, agent.agent_id)}
-                onDelete={onDelete}
-                onRename={onRename}
-                onPin={onPin}
-                onFork={onFork}
-                forkDisabled={
-                  activeId === s.id ? activeForkDisabled : undefined
-                }
-                forkDisabledHint={
-                  activeId === s.id ? activeForkDisabledHint : undefined
-                }
-              />
-            ))}
+            {/* An agent with many sessions used to grow without bound, pushing
+                every other expert out of the sidebar viewport. Clamp the list
+                to a scrollport so one busy agent cannot own the column. */}
+            <div
+              className={`${styles.agentCardSessionsScroll} ${
+                overflowsScrollport(filteredSessions.length)
+                  ? styles.agentCardSessionsScrollable
+                  : ""
+              }`}
+            >
+              {filteredSessions.slice(0, SESSION_PREVIEW_LIMIT).map((s) => (
+                <SessionItem
+                  key={s.id}
+                  session={s}
+                  isActive={activeId === s.id}
+                  workStatus={resolveSessionWorkStatus(s, liveWorkingIds)}
+                  onSelect={(id) => onSelect(id, agent.agent_id)}
+                  onDelete={onDelete}
+                  onRename={onRename}
+                  onPin={onPin}
+                  onFork={onFork}
+                  forkDisabled={
+                    activeId === s.id ? activeForkDisabled : undefined
+                  }
+                  forkDisabledHint={
+                    activeId === s.id ? activeForkDisabledHint : undefined
+                  }
+                />
+              ))}
+            </div>
+            {filteredSessions.length > SESSION_PREVIEW_LIMIT ? (
+              <div className={styles.agentCardSessionsOverflowHint}>
+                {t("chat.moreSessionsCount", "还有 {{count}} 条会话", {
+                  count: filteredSessions.length - SESSION_PREVIEW_LIMIT,
+                })}
+              </div>
+            ) : null}
             {showExpandMore ? (
               <button
                 type="button"

@@ -131,6 +131,28 @@ let _searchActive = false;
 const SEARCH_FETCH_CAP = 500;
 
 /**
+ * How many session rows the expanded agent renders before the "N more" hint
+ * appears.
+ *
+ * This is a count guard on top of the CSS pixel clamp: the scrollport shows
+ * roughly eight rows and scrolls for anything past that, while this constant
+ * bounds how many rows we mount at all. Crossing it is what tells the user
+ * their history is longer than what they are looking at.
+ */
+export const SESSION_PREVIEW_LIMIT = 40;
+
+/**
+ * Whether the visible rows exceed what we are willing to render inline.
+ *
+ * True adds the "N more" affordance next to the scrollport. The two bounds are
+ * deliberately different — the scrollport handles a long tail gracefully, this
+ * only fires when the tail is big enough to be worth calling out.
+ */
+export function overflowsScrollport(rowCount: number) {
+  return rowCount > SESSION_PREVIEW_LIMIT;
+}
+
+/**
  * Toggle the "search is looking at everything" mode.
  *
  * Clearing it must restore the paginated view, otherwise the sidebar keeps
