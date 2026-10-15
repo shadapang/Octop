@@ -123,7 +123,17 @@ scripts/lh_image_install_octop_tencentos.sh
 /USER.md
 /MEMORY.md
 /AGENT.md
+/HEARTBEAT.md
 /memory/
 /messages/
 /context/
+/agents/
+/skills/
 /dashboard/590
+
+# Local dev instance scratch (not for upstream)
+/Python/
+/gitlog.txt
+/idx.diff
+/docs/handoff-*.md
+/dashboard/vitest-out.txt
