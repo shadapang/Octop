@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, Fragment } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { Dropdown } from "antd";
@@ -10,19 +10,42 @@ import {
   Pin,
   PinOff,
   GitFork,
+  GripVertical,
   ChevronRight,
   MessageSquarePlus,
 } from "lucide-react";
 import type { OctopAgent } from "../../../context/AgentContext";
 import { ExpertIcon } from "../../Experts/components/iconForName";
 import { octopThreadsApi } from "../../../api/modules/octopThreads";
-import { showConfirmModal } from "../../../utils/confirmModal";
+import {
+  confirmDeleteConversation,
+  deleteConversation,
+} from "../utils/deleteConversation";
 import { isAgentChatReady } from "../../../utils/agentError";
 import { sortSessions, toSession, type Session } from "../hooks/useSessions";
+import {
+  applyListOrder,
+  groupSequence,
+  joinSequence,
+  moveIdBy,
+  moveIdTo,
+} from "../../../utils/listOrder";
+import { useListOrder } from "../../../hooks/useListOrder";
 import { formatThreadTitle } from "../utils/threadTitle";
-import { onSessionEvent, onStreamEvent } from "../hooks/chatStore";
+import { onSessionEvent } from "../hooks/chatStore";
+import { useSessionWorkIds } from "../hooks/useSessionWorkIds";
+import { useDragSortReorder } from "../hooks/useDragSortReorder";
+import {
+  agentOrderMenuItems,
+  type AgentOrdering,
+} from "./agentOrderMenu";
+import {
+  resolveSessionWorkStatus,
+  type SessionWorkStatus,
+} from "../utils/sessionWorkStatus";
 import SharedExpertHint from "./SharedExpertHint";
 import RemoteExpertHint from "./RemoteExpertHint";
+import SessionWorkStatusIcon from "./SessionWorkStatusIcon";
 import TeamChatBadge from "./TeamChatBadge";
 import styles from "../index.module.less";
 
@@ -63,7 +86,10 @@ interface MinimalAgentSessionNavProps {
   onAgentSelect: (agentId: string) => void;
   /** Start a fresh (unsaved) chat with the given expert. */
   onNewChat: (agentId: string) => void;
-  onDeleteActive: (id: string) => void;
+  onDeleteActive: (
+    id: string,
+    compact: boolean,
+  ) => void | Promise<boolean | void>;
   onRenameActive: (id: string, name: string) => void;
   onPinActive: (id: string, pinned: boolean) => void;
   onFork: (id: string, agentId?: string | null) => void;
@@ -87,7 +113,7 @@ function AgentUnreadBadge({ count }: { count: number }) {
 const PreviewSessionRow = memo(function PreviewSessionRow({
   session,
   isActive,
-  working,
+  workStatus,
   onSelect,
   onDelete,
   onRename,
@@ -98,9 +124,9 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
 }: {
   session: Session;
   isActive: boolean;
-  working: boolean;
+  workStatus: SessionWorkStatus;
   onSelect: (id: string) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string, compact: boolean) => void | Promise<boolean | void>;
   onRename: (id: string, name: string) => void;
   onPin: (id: string, pinned: boolean) => void;
   onFork: (id: string) => void;
@@ -177,14 +203,8 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
       danger: true,
       onClick: ({ domEvent }) => {
         domEvent.stopPropagation();
-        showConfirmModal({
-          title: t("chat.deleteSessionConfirm"),
-          okText: t("common.delete"),
-          cancelText: t("common.cancel"),
-          okButtonProps: { danger: true },
-          onOk: () => {
-            onDelete(session.id);
-          },
+        confirmDeleteConversation(t, (compact) => {
+          void onDelete(session.id, compact);
         });
       },
     },
@@ -222,13 +242,9 @@ const PreviewSessionRow = memo(function PreviewSessionRow({
         />
       ) : (
         <>
-          {working ? (
-            <span
-              className={styles.sessionRowWorkingDot}
-              title={t("chat.sessionWorking")}
-              aria-label={t("chat.sessionWorking")}
-            />
-          ) : null}
+          <span className={styles.sessionRowLead}>
+            <SessionWorkStatusIcon status={workStatus} />
+          </span>
           <span className={styles.sessionRowTitle}>{session.name}</span>
           {session.pinned ? (
             <span
@@ -276,7 +292,7 @@ export default function MinimalAgentSessionNav({
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [byAgent, setByAgent] = useState<Record<string, Session[]>>({});
-  const [workingIds, setWorkingIds] = useState<ReadonlySet<string>>(new Set());
+  const liveWorkingIds = useSessionWorkIds();
   const [loading, setLoading] = useState(false);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() =>
     loadCollapsedFolders(),
@@ -290,9 +306,100 @@ export default function MinimalAgentSessionNav({
     [agents],
   );
 
-  const sortedAgents = useMemo(
-    () => [...agents].sort((a, b) => b.id - a.id),
-    [agents],
+  const {
+    state: listOrderState,
+    loading: listOrderLoading,
+    write: writeListOrderState,
+    togglePin,
+  } = useListOrder();
+  const pinnedSet = useMemo(
+    () => new Set(listOrderState.pinned),
+    [listOrderState.pinned],
+  );
+
+  const sortedAgents = useMemo(() => {
+    const base = [...agents].sort((a, b) => b.id - a.id);
+    // Hold the default ordering while the backend order is still loading so
+    // the minimal nav never flashes an empty manual block.
+    return listOrderLoading
+      ? base
+      : applyListOrder(base, listOrderState, (a) => a.agent_id);
+  }, [agents, listOrderState, listOrderLoading]);
+
+  // Length of the pinned block at the head of the list.
+  const pinnedCount = useMemo(() => {
+    let n = 0;
+    for (const agent of sortedAgents) {
+      if (!pinnedSet.has(agent.agent_id)) break;
+      n += 1;
+    }
+    return n;
+  }, [sortedAgents, pinnedSet]);
+
+  const drag = useDragSortReorder({
+    enabled: !listOrderLoading,
+    onReorder: (fromId, toId, placement) => {
+      const seq = sortedAgents.map((a) => a.agent_id);
+      const next = moveIdTo(seq, fromId, toId, placement);
+      if (!next) return;
+      void writeListOrderState({ ...listOrderState, order: next });
+    },
+  });
+
+  const dragRowClass = useCallback(
+    (id: string) => {
+      if (drag.draggingId === id) return styles.dragRowActive;
+      if (drag.draggingId && drag.overId === id) {
+        return drag.placement === "before"
+          ? styles.dragRowDropBefore
+          : styles.dragRowDropAfter;
+      }
+      return "";
+    },
+    [drag],
+  );
+
+  /** Menu 上移/下移: move within the item's own group (pinned ↔ pinned). */
+  const moveAgent = useCallback(
+    (id: string, delta: -1 | 1) => {
+      const seq = sortedAgents.map((a) => a.agent_id);
+      const groups = groupSequence(seq, pinnedSet);
+      const inPinned = pinnedSet.has(id);
+      const nextGroup = moveIdBy(
+        inPinned ? groups.pinnedSeq : groups.restSeq,
+        id,
+        delta,
+      );
+      if (!nextGroup) return; // at group boundary — no-op
+      void writeListOrderState({
+        ...listOrderState,
+        order: joinSequence(
+          inPinned
+            ? { ...groups, pinnedSeq: nextGroup }
+            : { ...groups, restSeq: nextGroup },
+        ),
+      });
+    },
+    [sortedAgents, pinnedSet, listOrderState, writeListOrderState],
+  );
+
+  const buildOrdering = useCallback(
+    (agent: OctopAgent): AgentOrdering => {
+      const id = agent.agent_id;
+      return {
+        pinned: pinnedSet.has(id),
+        enabled: true,
+        rowProps: drag.getRowProps(id),
+        handleProps: drag.getHandleProps(id) as AgentOrdering["handleProps"],
+        rowClassName: dragRowClass(id),
+        onTogglePin: () => {
+          void togglePin(id);
+        },
+        onMoveUp: () => moveAgent(id, -1),
+        onMoveDown: () => moveAgent(id, 1),
+      };
+    },
+    [pinnedSet, drag, dragRowClass, moveAgent, togglePin],
   );
 
   // Ensure the active expert folder stays open.
@@ -401,21 +508,6 @@ export default function MinimalAgentSessionNav({
     }));
   }, [activeAgentId, activeSessions]);
 
-  // Turns streamed by this browser tab keep running after the user navigates
-  // away, so the nav marks those threads as busy until the stream ends.
-  useEffect(() => {
-    return onStreamEvent((event) => {
-      setWorkingIds((prev) => {
-        const busy = event.kind !== "streamEnd";
-        if (busy === prev.has(event.sessionId)) return prev;
-        const next = new Set(prev);
-        if (busy) next.add(event.sessionId);
-        else next.delete(event.sessionId);
-        return next;
-      });
-    });
-  }, []);
-
   useEffect(() => {
     return onSessionEvent((event) => {
       if (event.kind === "sessionDeleted") {
@@ -448,20 +540,18 @@ export default function MinimalAgentSessionNav({
   );
 
   const handleDelete = useCallback(
-    async (agentId: string, sessionId: string) => {
+    async (agentId: string, sessionId: string, compact: boolean) => {
       if (agentId === activeAgentId) {
-        onDeleteActive(sessionId);
+        const deleted = await onDeleteActive(sessionId, compact);
+        if (deleted === false) return;
         patchLocal(agentId, (prev) => prev.filter((s) => s.id !== sessionId));
         return;
       }
-      try {
-        await octopThreadsApi.delete(agentId, sessionId);
-        patchLocal(agentId, (prev) => prev.filter((s) => s.id !== sessionId));
-      } catch {
-        /* ignore */
-      }
+      const deleted = await deleteConversation(agentId, sessionId, compact, t);
+      if (!deleted) return;
+      patchLocal(agentId, (prev) => prev.filter((s) => s.id !== sessionId));
     },
-    [activeAgentId, onDeleteActive, patchLocal],
+    [activeAgentId, onDeleteActive, patchLocal, t],
   );
 
   const handleRename = useCallback(
@@ -515,14 +605,37 @@ export default function MinimalAgentSessionNav({
 
   return (
     <div className={`${styles.sessionList} ${styles.minimalAgentNav}`}>
-      {sortedAgents.map((agent) => {
+      {sortedAgents.map((agent, index) => {
         const list = byAgent[agent.agent_id] ?? [];
         const ready = isAgentChatReady(agent.state);
         const expanded = !collapsedFolders.has(agent.agent_id);
+        const ordering = buildOrdering(agent);
+        const showPinnedDivider =
+          index === pinnedCount &&
+          pinnedCount > 0 &&
+          pinnedCount < sortedAgents.length;
 
         return (
-          <section key={agent.agent_id} className={styles.minimalAgentSection}>
+          <Fragment key={agent.agent_id}>
+            {showPinnedDivider ? (
+              <div className={styles.pinnedGroupDivider} role="separator" />
+            ) : null}
+            <section
+              className={`${styles.minimalAgentSection} ${
+                ordering.rowClassName ?? ""
+              }`.trim()}
+              {...(ordering.rowProps ?? {})}
+            >
             <div className={styles.minimalAgentHeader}>
+              {ordering.handleProps ? (
+                <span
+                  className={styles.agentDragHandle}
+                  title={t("chat.dragToSort")}
+                  {...ordering.handleProps}
+                >
+                  <GripVertical size={12} />
+                </span>
+              ) : null}
               <span className={styles.minimalAgentIconSlot}>
                 <span
                   className={styles.minimalAgentAvatar}
@@ -563,13 +676,37 @@ export default function MinimalAgentSessionNav({
                 onClick={() => openFolderAndSelect(agent.agent_id)}
               >
                 <span className={styles.agentNameCluster}>
-                  <span className={styles.minimalAgentName}>{agent.name}</span>
+                  <span className={styles.minimalAgentName} title={agent.name}>
+            {agent.name}
+          </span>
+                  {ordering.pinned ? (
+                    <span
+                      className={styles.sessionRowPinIndicator}
+                      title={t("chat.unpin")}
+                    >
+                      <Pin size={11} strokeWidth={2} />
+                    </span>
+                  ) : null}
                   <TeamChatBadge agent={agent} />
                   <SharedExpertHint agent={agent} />
                   <RemoteExpertHint agent={agent} />
                 </span>
                 <AgentUnreadBadge count={agent.unread_count ?? 0} />
               </button>
+              <Dropdown
+                menu={{ items: agentOrderMenuItems(t, ordering) }}
+                trigger={["click"]}
+                placement="bottomRight"
+              >
+                <button
+                  type="button"
+                  className={styles.agentRowMore}
+                  aria-label={t("common.more", "More")}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <MoreHorizontal size={15} />
+                </button>
+              </Dropdown>
               <button
                 type="button"
                 className={styles.minimalAgentNewChatBtn}
@@ -601,9 +738,14 @@ export default function MinimalAgentSessionNav({
                       key={session.id}
                       session={session}
                       isActive={session.id === activeId}
-                      working={workingIds.has(session.id)}
+                      workStatus={resolveSessionWorkStatus(
+                        session,
+                        liveWorkingIds,
+                      )}
                       onSelect={(id) => onSelect(id, agent.agent_id)}
-                      onDelete={(id) => void handleDelete(agent.agent_id, id)}
+                      onDelete={(id, compact) =>
+                        void handleDelete(agent.agent_id, id, compact)
+                      }
                       onRename={(id, name) =>
                         handleRename(agent.agent_id, id, name)
                       }
@@ -624,7 +766,8 @@ export default function MinimalAgentSessionNav({
                 )}
               </div>
             ) : null}
-          </section>
+            </section>
+          </Fragment>
         );
       })}
     </div>

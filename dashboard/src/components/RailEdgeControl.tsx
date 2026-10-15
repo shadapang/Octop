@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import OctopMark from "./OctopMark";
 import styles from "./RailEdgeControl.module.less";
 
 interface RailEdgeControlProps {
@@ -18,6 +19,13 @@ interface RailEdgeControlProps {
    * (used when this edge shares a line with a neighboring rail).
    */
   showLine?: boolean;
+  /**
+   * ``chevron`` — the original thin hover-revealed arrow.
+   * ``brand`` — a persistent, always-visible Octop mark. Reserved for the
+   * chat history panel, where a hidden arrow leaves no clue that the
+   * collapsed sessions are one click away.
+   */
+  variant?: "chevron" | "brand";
 }
 
 /** Tall, wide-angle chevron (no circular chrome). */
@@ -56,6 +64,7 @@ export default function RailEdgeControl({
   label,
   className,
   showLine = true,
+  variant = "chevron",
 }: RailEdgeControlProps) {
   const { t } = useTranslation();
   const ariaLabel =
@@ -63,24 +72,29 @@ export default function RailEdgeControl({
     (expanded
       ? t("layout.collapsePanel", "收起面板")
       : t("layout.expandPanel", "展开面板"));
+  const isBrand = variant === "brand";
 
   return (
     <div
       className={`${styles.edge} ${
         side === "start" ? styles.edgeStart : styles.edgeEnd
       } ${expanded ? styles.edgeExpanded : styles.edgeCollapsed} ${
-        className ?? ""
-      }`}
+        isBrand ? styles.edgeBrand : ""
+      } ${className ?? ""}`}
     >
       {showLine ? <div className={styles.line} aria-hidden /> : null}
       <button
         type="button"
-        className={styles.btn}
+        className={`${styles.btn} ${isBrand ? styles.btnBrand : ""}`}
         onClick={onToggle}
         aria-label={ariaLabel}
         title={ariaLabel}
       >
-        <WideChevron dir={expanded ? "left" : "right"} />
+        {isBrand ? (
+          <OctopMark size={18} className={styles.mark} />
+        ) : (
+          <WideChevron dir={expanded ? "left" : "right"} />
+        )}
       </button>
     </div>
   );

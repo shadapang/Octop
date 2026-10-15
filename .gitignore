@@ -100,7 +100,40 @@ scripts/dev-local-link.sh
 .tools/
 .tools-sdk/
 
+# Local fnpack CLI (build-fpk.sh) and FPK scratch dirs
+.verify/fnpack
+.verify/fnpack.exe
+.verify/fnpack.partial
+.verify/fnpack.exe.partial
+.buildtmp.*/
+
+# FnOS native FPK install target (CI / local pack scratch; do not vendor)
+fnos/native/app/site-packages/
+
 # Local agent planning docs (not for upstream)
 docs/superpowers/
 scripts/lh_image_install_octop_tencentos.sh
 .worktrees/
+
+# JiuwenSwarm runtime file operation logs
+.agent_history/
+# Octop agent runtime data - never commit
+/IDENTITY.md
+/SOUL.md
+/USER.md
+/MEMORY.md
+/AGENT.md
+/HEARTBEAT.md
+/memory/
+/messages/
+/context/
+/agents/
+/skills/
+/dashboard/590
+
+# Local dev instance scratch (not for upstream)
+/Python/
+/gitlog.txt
+/idx.diff
+/docs/handoff-*.md
+/dashboard/vitest-out.txt

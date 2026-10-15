@@ -83,6 +83,8 @@
   transition: color var(--fn-transition-fast);
 }
 
+/* Secondary expander in the nav rail. The primary, always-visible one is the
+   brand mark on the chat panel's edge (RailEdgeControl variant="brand"). */
 .chatRailExpandBtn {
   display: flex;
   align-items: center;
@@ -125,13 +127,14 @@
   right: 4px;
   z-index: 2;
   font-size: 8px;
-  width: 14px;
+  width: auto;
+  min-width: 14px;
   height: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  padding: 0;
+  border-radius: 7px;
+  padding: 0 3px;
   pointer-events: none;
 }
 

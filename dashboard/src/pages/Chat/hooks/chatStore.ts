@@ -38,6 +38,15 @@ import {
 } from "../utils/messageGrouping";
 import { turnStatusAction } from "./turnStatusGate";
 import { mergePatchedToolOutput } from "../../../plugins/toolRenderers/parseToolOutput";
+import {
+  isAskHitl,
+  normalizeHitlRequest,
+  parseActionArgs,
+} from "../../../api/types/hitl";
+import {
+  isPausedAskTool,
+  promoteAskUserToolMessage,
+} from "../utils/pendingHitl";
 import { frameBelongsToThread } from "./frameThread";
 import {
   MAX_STREAM_RESUME_ATTEMPTS,
@@ -430,7 +439,11 @@ function pruneIdleLiveSpeakers(state: SessionStreamState): void {
   for (const message of state.messages) {
     if (message.role !== "assistant") continue;
     const key = speakerLiveKey(message.speakerAgentId);
-    const inFlightTool = Boolean(message.toolData && !message.toolData.output);
+    const inFlightTool = Boolean(
+      message.toolData &&
+        message.toolData.output === undefined &&
+        !isPausedAskTool(message),
+    );
     if (message.status !== "streaming" && !inFlightTool) continue;
     busy.add(key);
     if (!key && host) busy.add(host);
@@ -866,9 +879,11 @@ export function cancelStream(sessionId: string) {
   const hadAbort = Boolean(state.abortController);
   const hadStreaming = state.isStreaming;
   const hadStreamingMsgs = state.messages.some((m) => m.status === "streaming");
+  const hadLive = state.liveSpeakers.size > 0;
   state.abortController?.abort();
   state.abortController = null;
   clearStreamingFlags(state);
+  clearAllLiveSpeakers(state);
   clearStreamActivity(sessionId);
   pendingResumeBySession.delete(sessionId);
   state.runUsage = null;
@@ -878,7 +893,7 @@ export function cancelStream(sessionId: string) {
       m.status === "streaming" ? { ...m, status: "done" as const } : m,
     );
   }
-  if (hadAbort || hadStreaming || hadStreamingMsgs) {
+  if (hadAbort || hadStreaming || hadStreamingMsgs || hadLive) {
     notify(state);
   }
 }
@@ -1225,7 +1240,7 @@ function handleHarnessChunk(
       appendErrorBubble(state, chunk.message, chunk.error_code);
       break;
     case "hitl_required":
-      handleHitlRequired(state, chunk.request);
+      handleHitlRequired(state, chunk.request, speaker);
       break;
     case "slash_action":
       emitSlashAction({
@@ -1596,6 +1611,7 @@ function appendStreamingReasoning(
     state.messages,
     speaker,
     sessionHostAgentId(state),
+    continueTokenOpts(state),
   );
   const last = lastIdx >= 0 ? state.messages[lastIdx] : null;
   if (last && last.role === "assistant" && !last.toolData) {
@@ -1727,7 +1743,7 @@ function upsertToolCall(
           : m.toolData?.callId ?? callId;
       state.messages = [
         ...state.messages.slice(0, idx),
-        {
+        promoteAskUserToolMessage({
           ...m,
           speakerAgentId: speaker ?? m.speakerAgentId,
           toolData: {
@@ -1737,7 +1753,7 @@ function upsertToolCall(
             callId: nextCallId,
             arguments: nextArgs,
           },
-        },
+        }),
         ...state.messages.slice(idx + 1),
       ];
       registerToolCallKeys(state, existingMsgId, chunk, speaker);
@@ -1749,7 +1765,7 @@ function upsertToolCall(
   registerToolCallKeys(state, msgId, chunk, speaker);
   state.messages = [
     ...state.messages,
-    {
+    promoteAskUserToolMessage({
       id: msgId,
       role: "assistant",
       content: "",
@@ -1762,7 +1778,7 @@ function upsertToolCall(
       status: "streaming",
       timestamp: Date.now(),
       speakerAgentId: speaker,
-    },
+    }),
   ];
   emitToolEvent({
     kind: "toolStart",
@@ -2071,8 +2087,9 @@ function finalizeStreamingMessages(
 }
 
 function parseHitlRequest(raw: Record<string, unknown>) {
-  const requests = Array.isArray(raw.action_requests)
-    ? raw.action_requests
+  const normalized = normalizeHitlRequest(raw);
+  const requests = Array.isArray(normalized.action_requests)
+    ? normalized.action_requests
     : [];
   const action_requests = requests
     .filter((item) => item && typeof item === "object")
@@ -2080,16 +2097,13 @@ function parseHitlRequest(raw: Record<string, unknown>) {
       const row = item as Record<string, unknown>;
       return {
         name: typeof row.name === "string" ? row.name : "tool",
-        args:
-          row.args && typeof row.args === "object"
-            ? (row.args as Record<string, unknown>)
-            : {},
+        args: parseActionArgs(row.args),
         description:
           typeof row.description === "string" ? row.description : undefined,
       };
     });
-  const review_configs = Array.isArray(raw.review_configs)
-    ? raw.review_configs
+  const review_configs = Array.isArray(normalized.review_configs)
+    ? normalized.review_configs
         .filter((item) => item && typeof item === "object")
         .map(
           (item) =>
@@ -2099,13 +2113,25 @@ function parseHitlRequest(raw: Record<string, unknown>) {
             },
         )
     : undefined;
-  return { action_requests, review_configs, status: "pending" as const };
+  const pendingId =
+    typeof normalized.pending_id === "string"
+      ? normalized.pending_id
+      : typeof raw.pending_id === "string"
+      ? raw.pending_id
+      : undefined;
+  return {
+    action_requests,
+    review_configs,
+    status: "pending" as const,
+    ...(pendingId ? { pending_id: pendingId } : {}),
+  };
 }
 
 function resolveHitlPending(
   state: SessionStreamState,
   status: "approved" | "rejected",
   policy?: { mode: string; tools?: string[] },
+  pendingId?: string,
 ): void {
   const resolution =
     status === "rejected"
@@ -2115,29 +2141,105 @@ function resolveHitlPending(
       : policy?.mode === "allow_tools"
       ? "allow_tool"
       : "approve";
+  const targetId = pendingId?.trim();
   state.messages = state.messages.map((m) => {
     const hitl = m.hitlData;
     if (!hitl || (hitl.status ?? "pending") !== "pending") return m;
+    if (targetId && hitl.pending_id !== targetId) return m;
     return { ...m, hitlData: { ...hitl, status, resolution } };
   });
+}
+
+function pendingCardSpeaker(
+  state: SessionStreamState,
+  pendingId?: string,
+): string | undefined {
+  const targetId = pendingId?.trim();
+  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+    const message = state.messages[index];
+    const hitl = message?.hitlData;
+    if (!hitl || (hitl.status ?? "pending") !== "pending") continue;
+    if (targetId && hitl.pending_id !== targetId) continue;
+    const speaker = message?.speakerAgentId?.trim();
+    if (speaker) return speaker;
+  }
+  return undefined;
 }
 
 function handleHitlRequired(
   state: SessionStreamState,
   request: Record<string, unknown>,
+  speaker?: string,
 ): void {
-  finalizeStreamingMessages(state);
-  clearStreamingFlags(state);
-  clearAllLiveSpeakers(state);
+  const memberPause = Boolean(state.isTeamRoom) && Boolean(speaker?.trim());
+  if (memberPause) {
+    finalizeStreamingMessages(state, speaker);
+    clearSpeakerLive(state, speaker);
+    if (state.liveSpeakers.size === 0) clearStreamingFlags(state);
+  } else {
+    finalizeStreamingMessages(state);
+    clearStreamingFlags(state);
+    clearAllLiveSpeakers(state);
+  }
+  const hitlData = parseHitlRequest(request);
+  const askPause = isAskHitl(hitlData.action_requests);
+  const existingIdx = [...state.messages]
+    .map((message, index) => ({ message, index }))
+    .reverse()
+    .find(({ message }) => {
+      const hitl = message.hitlData;
+      if (hitlData.pending_id && hitl?.pending_id === hitlData.pending_id) {
+        return true;
+      }
+      if (
+        speaker &&
+        message.speakerAgentId &&
+        message.speakerAgentId !== speaker
+      ) {
+        return false;
+      }
+      if (askPause) {
+        if (isPausedAskTool(message)) return true;
+        return (
+          Boolean(hitl) &&
+          (hitl?.status ?? "pending") === "pending" &&
+          isAskHitl(hitl?.action_requests) &&
+          !hitl?.pending_id
+        );
+      }
+      return (
+        Boolean(hitl) &&
+        (hitl?.status ?? "pending") === "pending" &&
+        !isAskHitl(hitl?.action_requests)
+      );
+    })?.index;
+  if (existingIdx !== undefined) {
+    const current = state.messages[existingIdx];
+    state.messages = [
+      ...state.messages.slice(0, existingIdx),
+      {
+        ...current,
+        hitlData: {
+          ...current.hitlData,
+          ...hitlData,
+        },
+        speakerAgentId: speaker ?? current.speakerAgentId,
+        status: "done",
+      },
+      ...state.messages.slice(existingIdx + 1),
+    ];
+    return;
+  }
   state.messages = [
     ...state.messages,
     {
       id: generateId(),
       role: "assistant",
       content: "",
-      hitlData: parseHitlRequest(request),
+      hitlData,
       status: "done",
       timestamp: Date.now(),
+      ...(speaker ? { speakerAgentId: speaker } : {}),
     },
   ];
 }
@@ -2772,7 +2874,7 @@ async function consumeSseResponse(
   sessionId: string,
   res: Response,
   controller: AbortController,
-  finish: () => void,
+  finish: (skipRefresh?: boolean) => void,
 ): Promise<void> {
   const reader = res.body?.getReader();
   if (!reader) {
@@ -2797,7 +2899,7 @@ async function consumeSseResponse(
       handleHarnessChunk(state, chunk, sessionId);
       if (chunk.type === "done" || chunk.type === "error") {
         controller.abort();
-        finish();
+        finish(chunk.type === "done" && chunk.team_member_continuing === true);
         return;
       }
     }
@@ -2819,17 +2921,37 @@ export async function resumeHitl(
   onStreamEnd?: () => void,
   dismissed = false,
   hitlPolicy?: { mode: string; tools?: string[] },
+  pendingId?: string,
 ): Promise<void> {
   const state = getOrCreate(sessionId);
-  state.abortController?.abort();
+  const live = liveSockets.get(sessionId);
+  // Team member answers arrive on the room listen socket. Aborting it sends
+  // cancel and drops the continuation that follows this approval.
+  const keepRoomListen =
+    Boolean(state.isTeamRoom) &&
+    Boolean(live?.listenOnly) &&
+    live?.ws.readyState === WebSocket.OPEN;
+  if (!keepRoomListen) {
+    state.abortController?.abort();
+  }
   const hitlStatus =
     dismissed || decisions.some((d) => d.type === "reject")
       ? "rejected"
       : "approved";
-  resolveHitlPending(state, hitlStatus, hitlPolicy);
-  beginStream(state, sessionId);
-  notify(state);
-  emitStreamEvent({ kind: "streamStart", sessionId });
+  const continuedSpeaker = keepRoomListen
+    ? pendingCardSpeaker(state, pendingId)
+    : undefined;
+  resolveHitlPending(state, hitlStatus, hitlPolicy, pendingId);
+  if (keepRoomListen) {
+    // The member is still in this turn. Keep their bubble and the
+    // "responding" indicator until their own done frame arrives.
+    if (continuedSpeaker) markSpeakerLive(state, continuedSpeaker);
+    notify(state);
+  } else {
+    beginStream(state, sessionId);
+    notify(state);
+    emitStreamEvent({ kind: "streamStart", sessionId });
+  }
 
   const controller = new AbortController();
   state.abortController = controller;
@@ -2844,20 +2966,29 @@ export async function resumeHitl(
   }
 
   let finished = false;
-  const finish = () => {
+  const finish = (skipRefresh = false) => {
     if (finished) return;
     finished = true;
+    pendingResumeBySession.delete(sessionId);
+    if (state.abortController === controller) {
+      state.abortController = null;
+    }
+    if (skipRefresh && keepRoomListen) {
+      if (continuedSpeaker) markSpeakerLive(state, continuedSpeaker);
+      notify(state);
+      return;
+    }
     clearStreamingFlags(state);
     clearStreamActivity(sessionId);
-    pendingResumeBySession.delete(sessionId);
-    state.abortController = null;
     state.streamMsg = "";
     state.streamId = "";
     state.streamBlockType = "";
     sealInFlightAssistantMessages(state);
     notify(state);
     emitStreamEvent({ kind: "streamEnd", sessionId });
-    onStreamEnd?.();
+    // History reload now would replace the live member bubbles with a room
+    // transcript that does not yet contain this answer.
+    if (!skipRefresh) onStreamEnd?.();
   };
 
   try {
@@ -2867,6 +2998,7 @@ export async function resumeHitl(
       body: JSON.stringify({
         thread_id: threadId,
         decisions,
+        ...(pendingId ? { pending_id: pendingId } : {}),
         ...(hitlPolicy ? { hitl_policy: hitlPolicy } : {}),
       }),
       signal: controller.signal,

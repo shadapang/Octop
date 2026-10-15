@@ -3,9 +3,16 @@ import { beginPointerDragSession } from "../../../hooks/usePointerDragSession";
 
 export const CHAT_SIDEBAR_KEY = "octop:chat-sidebar:open";
 export const CHAT_SIDEBAR_WIDTH_KEY = "octop:chat-sidebar:width";
-export const SIDEBAR_WIDTH_MIN = 200;
-export const SIDEBAR_WIDTH_MAX = 360;
-export const SIDEBAR_WIDTH_DEFAULT = 248;
+/**
+ * Row overhead at the narrow end is ~161px (avatar 26 + drag handle 16 +
+ * gaps + sidebar padding), so ~268px is the point where the longest current
+ * expert name ("AI 工程方法论教练", 106px ink) stops being clipped. The default
+ * sits just above that: wide enough to read names in full, narrow enough to
+ * leave the conversation in charge of the screen.
+ */
+export const SIDEBAR_WIDTH_MIN = 260;
+export const SIDEBAR_WIDTH_MAX = 480;
+export const SIDEBAR_WIDTH_DEFAULT = 280;
 /** Viewport width at/above which the chat history rail defaults open. */
 export const CHAT_SIDEBAR_WIDE_BREAKPOINT = 1200;
 

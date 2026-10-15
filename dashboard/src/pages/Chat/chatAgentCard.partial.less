@@ -97,7 +97,9 @@
   font-weight: 500;
   color: var(--fn-text-primary);
   line-height: 1.35;
-  min-width: 0;
+  /* Name keeps a readable floor; badges shrink before the name does. */
+  flex: 1 1 auto;
+  min-width: 6em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -124,7 +126,8 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
   max-width: 12em;
   padding: 0 5px;
   height: 16px;
@@ -164,7 +167,8 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
   max-width: 100%;
   padding: 0 6px;
   height: 16px;
@@ -176,6 +180,7 @@
   color: var(--fn-color-brand);
   background: color-mix(in srgb, var(--fn-color-brand) 12%, transparent);
   white-space: nowrap;
+  overflow: hidden;
 }
 
 .agentCardDesc {
@@ -202,6 +207,50 @@
   gap: 2px;
   padding: 4px 2px 2px;
   border-top: none;
+  /* Allow this column to shrink so the scrollport below can bound its height
+     instead of letting one busy agent push every other expert off-screen. */
+  min-height: 0;
+}
+
+/* Scrollport for an expanded agent's sessions.
+   The pixel clamp is the real bound on height; `overflow-y: auto` only engages
+   once the rows actually exceed it, which is why the JS gate
+   (`overflowsScrollport`) mirrors `SESSION_PREVIEW_LIMIT`. */
+.agentCardSessionsScroll {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  /* Rows keep their own padding; bleed to the scrollport edge so the scrollbar
+     does not visually detach from the list. */
+  margin: 0 -2px;
+  padding: 0 2px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--fn-text-primary) 18%, transparent)
+    transparent;
+}
+
+.agentCardSessionsScroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.agentCardSessionsScroll::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--fn-text-primary) 18%, transparent);
+}
+
+.agentCardSessionsScroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Count of sessions beyond the scrollport, so a truncated list never reads as
+   the complete history. */
+.agentCardSessionsOverflowHint {
+  padding: 3px 4px 1px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--fn-text-quaternary);
 }
 
 .agentCardSessionsEmpty {
@@ -276,6 +325,15 @@
 
 .agentUnreadBadge {
   margin-left: auto;
+}
+
+.sessionRowLead {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
 }
 
 .sessionRowIcon {
@@ -474,7 +532,9 @@
   font-weight: 400;
   color: var(--fn-text-secondary);
   line-height: 1.35;
-  min-width: 0;
+  /* Name keeps a readable floor; badges shrink before the name does. */
+  flex: 1 1 auto;
+  min-width: 6em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -524,6 +584,124 @@
 /* legacy agent group — kept for compatibility */
 .agentGroup {
   display: none;
+}
+
+/* ── Manual ordering: drag handle + drop feedback + pinned divider ───── */
+
+.agentDragHandle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 20px;
+  margin-left: -4px;
+  margin-right: 2px;
+  border-radius: 4px;
+  color: var(--fn-text-quaternary);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    color 0.15s;
+
+  &:hover {
+    color: var(--fn-text-secondary);
+  }
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+
+.agentRowWrap:hover .agentDragHandle,
+.agentCardActive:hover .agentDragHandle,
+.minimalAgentSection:hover .agentDragHandle,
+.agentDragHandle:focus-visible {
+  opacity: 1;
+}
+
+/* Touch devices never hover — keep the handle reachable. */
+@media (hover: none) {
+  .agentDragHandle {
+    opacity: 1;
+  }
+}
+
+.dragRowActive {
+  opacity: 0.55;
+}
+
+.dragRowDropBefore,
+.dragRowDropAfter {
+  position: relative;
+}
+
+.dragRowDropBefore::before,
+.dragRowDropAfter::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--fn-color-brand);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.dragRowDropBefore::before {
+  top: -1px;
+}
+
+.dragRowDropAfter::after {
+  bottom: -1px;
+}
+
+.pinnedGroupDivider {
+  height: 1px;
+  margin: 4px 10px;
+  background: var(--fn-border-primary, rgba(0, 0, 0, 0.08));
+}
+
+.agentRowMore {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fn-text-quaternary);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    background 0.15s,
+    color 0.15s;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--fn-text-secondary);
+  }
+}
+
+.agentRowWrap:hover .agentRowMore,
+.agentCardActive:hover .agentRowMore,
+.minimalAgentHeader:hover .agentRowMore,
+.agentRowMore:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .agentRowMore {
+    opacity: 1;
+  }
 }
 
 .sessionItemNested {

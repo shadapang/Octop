@@ -1558,6 +1558,12 @@ def _ensure_thread_conversation_mode_schema(db: DatabasePool) -> None:
     _ensure_column(db, "threads", "hitl_policy", "TEXT")
 
 
+def _ensure_skill_copy_policy_schema(db: DatabasePool) -> None:
+    if not _table_exists(db, "skill_packages"):
+        return
+    _ensure_column(db, "skill_packages", "copy_policy", "TEXT NOT NULL DEFAULT 'snapshot'")
+
+
 def _ensure_bridge_connections_schema(db: DatabasePool) -> None:
     """Fold notes + unique display_name + auto_reconnect into unreleased v19."""
     if not _table_exists(db, "bridge_connections"):
@@ -1892,9 +1898,96 @@ def _apply_sqlite_migration(db: DatabasePool, version: int, path: Path) -> None:
         with db.connect() as conn:
             conn.execute("UPDATE _schema_version SET version = ?", (version,))
         return
+    if version == 20:
+        _ensure_skill_copy_policy_schema(db)
+        with db.connect() as conn:
+            conn.execute("UPDATE _schema_version SET version = ?", (version,))
+        return
     sql = path.read_text(encoding="utf-8")
     with db.connect() as conn:
         conn.executescript(sql)
+
+
+_NAV_PAGE_PERMISSIONS = ("experts", "tasks", "token_usage")
+_NAV_PAGE_PERMISSIONS_FLAG = "granted_nav_page_permissions"
+
+
+def _parse_perm_list(raw: Any) -> list[str] | None:
+    if isinstance(raw, list):
+        return [str(item) for item in raw]
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed]
+    return None
+
+
+def _grant_default_nav_permissions(db: DatabasePool) -> None:
+    """Grant experts/tasks/token usage once to accounts that already had them open.
+
+    Later removals stick: the settings flag stops this from running again.
+    Admins are skipped; an empty permission list means "all" for that role.
+    """
+    if not _table_exists(db, "settings"):
+        return
+    with db.connect() as conn:
+        flag = conn.execute(
+            "SELECT value FROM settings WHERE key = ?",
+            (_NAV_PAGE_PERMISSIONS_FLAG,),
+        ).fetchone()
+    if flag is not None:
+        return
+
+    def grant(table: str, id_col: str, skip_where: str) -> None:
+        if not _table_exists(db, table):
+            return
+        with db.connect() as conn:
+            rows = conn.execute(
+                f"SELECT {id_col}, permissions FROM {table} WHERE {skip_where}"
+            ).fetchall()
+        updates: list[tuple[str, object]] = []
+        for row in rows:
+            current = _parse_perm_list(row[1])
+            if current is None:
+                continue
+            merged = list(current)
+            changed = False
+            for key in _NAV_PAGE_PERMISSIONS:
+                if key not in merged:
+                    merged.append(key)
+                    changed = True
+            if changed:
+                updates.append((json.dumps(merged, ensure_ascii=False), row[0]))
+        if not updates:
+            return
+        with db.transaction() as conn:
+            for payload, pk in updates:
+                conn.execute(
+                    f"UPDATE {table} SET permissions = ? WHERE {id_col} = ?",
+                    (payload, pk),
+                )
+
+    grant("users", "id", "role <> 'admin'")
+    grant("user_role", "id", "user_role_id <> 'admin'")
+    with db.transaction() as conn:
+        if db.dialect == "postgresql":
+            conn.execute(
+                "INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING",
+                (_NAV_PAGE_PERMISSIONS_FLAG, "1"),
+            )
+        else:
+            conn.execute(
+                "INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)",
+                (_NAV_PAGE_PERMISSIONS_FLAG, "1"),
+            )
 
 
 def run_migrations(db: DatabasePool) -> None:
@@ -1949,3 +2042,4 @@ def run_migrations(db: DatabasePool) -> None:
     _ensure_sso_provider_kind_schema(db)
     _ensure_user_role_schema(db)
     _ensure_bridge_connections_schema(db)
+    _grant_default_nav_permissions(db)

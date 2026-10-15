@@ -30,6 +30,7 @@ import {
   parseToolExecutionFeedback,
 } from "../../../utils/toolMediaBlocks";
 import { injectPendingHitlMessage } from "../../../utils/injectPendingHitlMessage";
+import { promoteAskUserToolMessage } from "../utils/pendingHitl";
 import { rewritePeerSpeakerId } from "../../../utils/remoteExpert";
 import type {
   ChatAttachment,
@@ -641,7 +642,7 @@ function convertCallEntries(entries: CallEntry[]): ChatMessage[] {
   }
   flushTurn();
 
-  return merged;
+  return merged.map(promoteAskUserToolMessage);
 }
 
 function toHistoryContentBlocks(content: unknown): unknown[] {
@@ -1166,6 +1167,7 @@ export function useChat(
       storeKey?: string,
       dismissed?: boolean,
       hitlPolicy?: HitlSessionPolicy,
+      pendingId?: string,
     ) => {
       if (!agentId) return;
       const key = storeKey || stableSessionId;
@@ -1182,6 +1184,7 @@ export function useChat(
         },
         dismissed,
         hitlPolicy,
+        pendingId,
       );
     },
     [agentId, stableSessionId, refreshHistory],

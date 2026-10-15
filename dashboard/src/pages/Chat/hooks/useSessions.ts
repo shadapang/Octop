@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useTranslation } from "react-i18next";
+import { deleteConversation } from "../utils/deleteConversation";
 import {
   normalizeThreadArtifacts,
   octopThreadsApi,
@@ -26,6 +28,8 @@ export interface Session {
   pendingPlanPath?: string | null;
   hitlPolicy?: HitlSessionPolicy | null;
   artifacts?: ThreadArtifact[];
+  turnActive?: boolean;
+  awaitingUser?: boolean;
 }
 
 /** Result of probing whether a thread exists for the current agent. */
@@ -49,6 +53,8 @@ export function toSession(row: {
   artifacts?: Array<string | ThreadArtifact> | null;
   artifact_refs?: ThreadArtifact[] | null;
   agent_id?: string | null;
+  turn_active?: boolean;
+  awaiting_user?: boolean;
 }): Session {
   const hasActivity =
     Boolean(row.has_messages) || Boolean(row.title) || row.last_active > 0;
@@ -81,6 +87,8 @@ export function toSession(row: {
       row.agent_id,
       row.artifact_refs,
     ),
+    turnActive: Boolean(row.turn_active),
+    awaitingUser: Boolean(row.awaiting_user),
   };
 }
 
@@ -112,6 +120,62 @@ let _loading = true;
 let _hasMore = false;
 let _loadingMore = false;
 export const SESSION_PAGE_SIZE = 10;
+/**
+ * While a search box is active the sidebar must be able to show matches that
+ * live past the paginated window. The flag gates `visibleSessionsForAgent` so
+ * search can widen the view WITHOUT permanently raising the user's loaded
+ * limit (which used to leave the list stuck at 50 rows after one search).
+ */
+let _searchActive = false;
+/** Hard stop for `fetchAllSessions` so a runaway account cannot page forever. */
+const SEARCH_FETCH_CAP = 500;
+
+/**
+ * How many session rows the expanded agent renders before the "N more" hint
+ * appears.
+ *
+ * This is a count guard on top of the CSS pixel clamp: the scrollport shows
+ * roughly eight rows and scrolls for anything past that, while this constant
+ * bounds how many rows we mount at all. Crossing it is what tells the user
+ * their history is longer than what they are looking at.
+ */
+export const SESSION_PREVIEW_LIMIT = 40;
+
+/**
+ * Whether the visible rows exceed what we are willing to render inline.
+ *
+ * True adds the "N more" affordance next to the scrollport. The two bounds are
+ * deliberately different — the scrollport handles a long tail gracefully, this
+ * only fires when the tail is big enough to be worth calling out.
+ */
+export function overflowsScrollport(rowCount: number) {
+  return rowCount > SESSION_PREVIEW_LIMIT;
+}
+
+/**
+ * Toggle the "search is looking at everything" mode.
+ *
+ * Clearing it must restore the paginated view, otherwise the sidebar keeps
+ * showing every fetched row until the user switches agents.
+ */
+export function setSearchActive(agentId: string, active: boolean) {
+  if (_searchActive === active) return;
+  _searchActive = active;
+  if (!active) {
+    // Searching pages until the server runs dry, so hasMore legitimately ends
+    // up false. Restore it from what we actually hold, otherwise the
+    // "load more" affordance never comes back and the list becomes unpaginable.
+    _hasMore = _sessions.length > getLoadedLimit(agentId);
+  }
+  setModuleSessions(visibleSessionsForAgent(_sessions, agentId));
+  _snapshot = {
+    sessions: _sessions,
+    loading: _loading,
+    hasMore: _hasMore,
+    loadingMore: _loadingMore,
+  };
+  notifyListeners();
+}
 let _storeAgentId: string | null = null;
 const _loadedLimitByAgent = new Map<string, number>();
 const _listeners = new Set<() => void>();
@@ -295,7 +359,9 @@ function visibleSessionsForAgent(
   agentId: string,
   activeThreadId?: string,
 ): Session[] {
-  const limit = getLoadedLimit(agentId);
+  // A live search must see past the paginated window; otherwise only the first
+  // page is reachable by search. Cleared by setSearchActive(false).
+  const limit = _searchActive ? sessions.length : getLoadedLimit(agentId);
   let visible = sessions.slice(0, limit);
   if (!activeThreadId || visible.some((s) => s.id === activeThreadId)) {
     return visible;
@@ -372,6 +438,9 @@ export function resetSessionStoreForTests() {
   _loadingMore = false;
   _loadedLimitByAgent.clear();
   _pendingThreadIds.clear();
+  // Search widens the visible window; leaving it latched would make every
+  // later case in this file render un-paginated.
+  _searchActive = false;
   _snapshot = {
     sessions: _sessions,
     loading: _loading,
@@ -381,6 +450,7 @@ export function resetSessionStoreForTests() {
 }
 
 export function useSessions(agentId: string | null) {
+  const { t } = useTranslation();
   syncStoreToAgent(agentId);
   const { sessions, loading, hasMore, loadingMore } = useSyncExternalStore(
     subscribeSessionStore,
@@ -436,17 +506,48 @@ export function useSessions(agentId: string | null) {
   );
 
   const fetchAllSessions = useCallback(
-    async (activeThreadId?: string) => {
-      if (!agentId) return;
+    async (activeThreadId?: string): Promise<boolean> => {
+      if (!agentId) return false;
       try {
-        const { sessions: valid, hasMore: more } = await fetchSessionsPage(
-          agentId,
-          50,
+        // Page until the server stops offering more (capped). The previous
+        // implementation requested a fixed 50 and then stored that count as the
+        // user's loaded limit, so one search left the sidebar stuck showing 50
+        // rows and anything past #50 was unreachable.
+        const collected: Session[] = [];
+        let more = true;
+        let offset = 0;
+        while (more && collected.length < SEARCH_FETCH_CAP) {
+          const batch = Math.min(
+            SESSION_PAGE_SIZE * 5,
+            SEARCH_FETCH_CAP - collected.length,
+          );
+          const rows = await octopThreadsApi.list(agentId, offset + batch + 1);
+          const page = rows
+            .slice(offset, offset + batch)
+            .map((row) => toSession({ ...row, agent_id: agentId }));
+          collected.push(...page);
+          offset += page.length;
+          more = rows.length > offset;
+        }
+        if (_storeAgentId !== agentId) return false;
+        // Keep the caller's loaded limit intact — search visibility is driven
+        // by _searchActive, not by permanently raising the page size.
+        setModuleSessions(
+          visibleSessionsForAgent(sortSessions(collected), agentId, activeThreadId),
         );
-        if (_storeAgentId !== agentId) return;
-        applySessionPage(valid, more, valid.length, agentId, activeThreadId);
+        _hasMore = more;
+        _snapshot = {
+          sessions: _sessions,
+          loading: _loading,
+          hasMore: _hasMore,
+          loadingMore: _loadingMore,
+        };
+        notifyListeners();
+        return true;
       } catch {
-        /* ignore */
+        // Let the caller surface a retry instead of silently searching a
+        // stale slice forever.
+        return false;
       }
     },
     [agentId],
@@ -567,19 +668,16 @@ export function useSessions(agentId: string | null) {
   }, [agentId]);
 
   const deleteSession = useCallback(
-    async (id: string) => {
+    async (id: string, compact: boolean) => {
       if (!agentId || !id) return false;
-      try {
-        await octopThreadsApi.delete(agentId, id);
-        setModuleSessions((prev) => prev.filter((s) => s.id !== id));
-        chatStore.removeSession(id);
-        chatStore.emitSessionEvent({ kind: "sessionDeleted", sessionId: id });
-        return true;
-      } catch {
-        return false;
-      }
+      const deleted = await deleteConversation(agentId, id, compact, t);
+      if (!deleted) return false;
+      setModuleSessions((prev) => prev.filter((s) => s.id !== id));
+      chatStore.removeSession(id);
+      chatStore.emitSessionEvent({ kind: "sessionDeleted", sessionId: id });
+      return true;
     },
-    [agentId],
+    [agentId, t],
   );
 
   const pinSession = useCallback(
