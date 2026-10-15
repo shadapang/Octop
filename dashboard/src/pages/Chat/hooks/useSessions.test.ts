@@ -1,12 +1,14 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  overflowsScrollport,
   resetSessionStoreForTests,
   setSearchActive,
   sortSessions,
   toSession,
   useSessions,
   SESSION_PAGE_SIZE,
+  SESSION_PREVIEW_LIMIT,
   type Session,
 } from "./useSessions";
 
@@ -261,5 +263,20 @@ describe("useSessions search widening", () => {
       ok = await result.current.fetchAllSessions();
     });
     expect(ok).toBe(false);
+  });
+});
+
+describe("session preview cap", () => {
+  it("stays quiet at the cap and flags anything past it", () => {
+    // The cap is what triggers the "N more" affordance; rows at or below it
+    // render in full, so no hint may fire there.
+    expect(overflowsScrollport(SESSION_PREVIEW_LIMIT)).toBe(false);
+    expect(overflowsScrollport(SESSION_PREVIEW_LIMIT + 1)).toBe(true);
+    expect(overflowsScrollport(0)).toBe(false);
+  });
+
+  it("keeps the cap well above one scrollport so short lists never hint", () => {
+    // A busy agent scrolls inside its own scrollport well before this fires.
+    expect(SESSION_PREVIEW_LIMIT).toBeGreaterThan(20);
   });
 });
