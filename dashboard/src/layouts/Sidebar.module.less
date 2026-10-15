@@ -83,8 +83,41 @@
   transition: color var(--fn-transition-fast);
 }
 
-/* Secondary expander in the nav rail. The primary, always-visible one is the
-   brand mark on the chat panel's edge (RailEdgeControl variant="brand"). */
+/* Nav collapse toggle. Lives in the rail's own header beside the brand mark —
+   not on the rail edge, where the gap between the logo and the neighbouring
+   panel is only ~24px and a button there covers one or the other. */
+.navRailToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, #ff0004 20%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, #ff0004 8%, transparent);
+  color: #ff0004;
+  cursor: pointer;
+  opacity: 0.85;
+  transition:
+    background var(--fn-transition-fast),
+    border-color var(--fn-transition-fast),
+    opacity var(--fn-transition-fast);
+
+  &:hover {
+    background: color-mix(in srgb, #ff0004 15%, transparent);
+    border-color: color-mix(in srgb, #ff0004 36%, transparent);
+    opacity: 1;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #ff0004;
+    outline-offset: 1px;
+  }
+}
+
 .chatRailExpandBtn {
   display: flex;
   align-items: center;

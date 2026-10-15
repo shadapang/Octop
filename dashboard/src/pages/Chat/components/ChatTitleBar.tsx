@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Dropdown, Switch } from "antd";
 import type { MenuProps } from "antd";
 import { useTranslation } from "react-i18next";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import {
   MoreVertical,
   Pin,
@@ -28,6 +29,10 @@ interface ChatTitleBarProps {
   forkDisabled?: boolean;
   forkDisabledHint?: string;
   isTeam?: boolean;
+  /** Whether the chat history rail is currently open; picks the icon. */
+  sidebarOpen?: boolean;
+  /** Toggles the chat history rail. */
+  onToggleSidebar?: () => void;
 }
 
 export default function ChatTitleBar({
@@ -40,6 +45,8 @@ export default function ChatTitleBar({
   forkDisabled,
   forkDisabledHint,
   isTeam = false,
+  sidebarOpen = true,
+  onToggleSidebar,
 }: ChatTitleBarProps) {
   const { t } = useTranslation();
   const [collapseThinking, setCollapseThinking] = useCollapseThinking(isTeam);
@@ -132,6 +139,29 @@ export default function ChatTitleBar({
   return (
     <div className={`${styles.chatTitleBar} ${DESKTOP_DRAG_REGION_CLASS}`}>
       <div className={styles.chatTitleLeft}>
+        {onToggleSidebar ? (
+          <button
+            type="button"
+            className={styles.chatTitleSidebarToggle}
+            onClick={onToggleSidebar}
+            aria-label={
+              sidebarOpen
+                ? t("layout.collapsePanel", "收起面板")
+                : t("layout.expandPanel", "展开面板")
+            }
+            title={
+              sidebarOpen
+                ? t("layout.collapsePanel", "收起面板")
+                : t("layout.expandPanel", "展开面板")
+            }
+          >
+            {sidebarOpen ? (
+              <PanelLeftClose size={14} strokeWidth={2} aria-hidden />
+            ) : (
+              <PanelLeftOpen size={14} strokeWidth={2} aria-hidden />
+            )}
+          </button>
+        ) : null}
         <SessionChannelIcon
           channelType={session.channelType}
           size={13}

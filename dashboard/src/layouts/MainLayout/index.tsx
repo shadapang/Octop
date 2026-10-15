@@ -3,7 +3,6 @@ import { lazy, Suspense, useEffect, useState, useCallback } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
 import Sidebar from "../Sidebar";
 import Header from "../Header";
-import RailEdgeControl from "../../components/RailEdgeControl";
 import PageLoading from "../../components/PageLoading";
 import { ServiceRestartProvider } from "../../context/ServiceRestartContext";
 import { BackupOperationProvider } from "../../context/BackupOperationContext";
@@ -93,7 +92,7 @@ export default function MainLayout() {
   }, [collapsed, persistNavCollapsed]);
 
   /**
-   * Desktop nav rail edge:
+   * Nav rail toggle (the header button in the rail's brand row):
    * - expand: open nav; if classic chat history is also closed, open both
    * - collapse: collapse nav only
    */
@@ -114,6 +113,10 @@ export default function MainLayout() {
     persistNavCollapsed,
     setChatSidebarOpen,
   ]);
+
+  // Desktop: the rail's header button owns expand/collapse and carries the
+  // expand-also-opens-chat behaviour. Mobile: the overlay's simple flip.
+  const sidebarToggle = isMobile ? toggleCollapsed : handleNavRailToggle;
 
   // When switching to mobile, always collapse; restore saved preference on desktop
   useEffect(() => {
@@ -221,16 +224,9 @@ export default function MainLayout() {
             <Sidebar
               selectedKey={selectedKey}
               collapsed={collapsed}
-              onToggle={toggleCollapsed}
+              onToggle={sidebarToggle}
               isMobile={isMobile}
             />
-            {!isMobile && (
-              <RailEdgeControl
-                expanded={!collapsed}
-                onToggle={handleNavRailToggle}
-                side="end"
-              />
-            )}
           </div>
 
           {isChatRoute && !isMinimalLayout && (

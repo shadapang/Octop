@@ -687,7 +687,7 @@ export default function MinimalAgentSessionNav({
                       <Pin size={11} strokeWidth={2} />
                     </span>
                   ) : null}
-                  <TeamChatBadge agent={agent} />
+                  <TeamChatBadge agent={agent} short />
                   <SharedExpertHint agent={agent} />
                   <RemoteExpertHint agent={agent} />
                 </span>

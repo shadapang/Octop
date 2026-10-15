@@ -196,6 +196,51 @@
   color: var(--fn-text-tertiary);
 }
 
+/* Sidebar toggle for the chat history rail.
+   Lives in the conversation header beside the edit / more buttons rather than
+   straddling the panel border: the rail and the conversation meet with no
+   gutter, so an edge button either covers the search box or covers list rows.
+   Same 24px box, radius and hover as its neighbours, so it reads as part of
+   the toolbar rather than a floating chip. Always visible — it is the only
+   way back to a collapsed history. */
+.chatTitleSidebarToggle {
+  position: static;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  /* Border first, then wash: two declarations are needed so the 8% tint is
+     not re-mixed on top of the 20% border colour. */
+  border: 1px solid color-mix(in srgb, #ff0004 20%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, #ff0004 8%, transparent);
+  color: #ff0004;
+  cursor: pointer;
+  transition:
+    color var(--fn-transition-fast, 0.15s ease),
+    background var(--fn-transition-fast, 0.15s ease),
+    border-color var(--fn-transition-fast, 0.15s ease);
+
+  &:hover {
+    background: color-mix(in srgb, #ff0004 15%, transparent);
+    border-color: color-mix(in srgb, #ff0004 36%, transparent);
+    color: #ff0004;
+  }
+
+  &:active {
+    transform: scale(0.94);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #ff0004;
+    outline-offset: 1px;
+  }
+}
+
 .chatTitleEditBtn {
   position: static;
   flex-shrink: 0;

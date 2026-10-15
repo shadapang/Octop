@@ -5,7 +5,7 @@ import type { TFunction } from "i18next";
 import AvatarDropdown from "../components/AvatarDropdown";
 import AppVersionBadge from "../components/AppVersionBadge";
 import CurrentVersionBadge from "../components/CurrentVersionBadge";
-import { ArrowRightLeft, ChevronDown, X } from "lucide-react";
+import { ArrowRightLeft, ChevronDown, X, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useTheme } from "../context/ThemeContext";
 import { useLayoutMode } from "../context/LayoutModeContext";
 import { useUserRole } from "../hooks/useUserRole";
@@ -504,6 +504,32 @@ export default function Sidebar({
           borderRadius: isRailCollapsed ? 8 : undefined,
         }}
       />
+      {/* Nav collapse toggle lives in the rail's own header, not on its edge.
+          The edge is 24px of dead space between the logo and the neighbouring
+          panel, so any edge button there either covers the logo or lands on the
+          chat search box. */}
+      {!isMobile && (
+        <button
+          type="button"
+          className={styles.navRailToggle}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          aria-label={
+            collapsed ? t("layout.expandPanel") : t("layout.collapsePanel")
+          }
+          title={
+            collapsed ? t("layout.expandPanel") : t("layout.collapsePanel")
+          }
+        >
+          {collapsed ? (
+            <PanelLeftOpen size={15} strokeWidth={2} aria-hidden />
+          ) : (
+            <PanelLeftClose size={15} strokeWidth={2} aria-hidden />
+          )}
+        </button>
+      )}
       {!isRailCollapsed && !isMobile && (
         <>
           <CurrentVersionBadge isMobile={isMobile} />
@@ -765,8 +791,8 @@ export default function Sidebar({
     );
   }
 
-  // Desktop: custom sidebar with icon-only collapsed mode.
-  // Right border is drawn by MainLayout's RailEdgeControl.
+  // Desktop: custom sidebar with icon-only collapsed mode. No border — the
+  // rails meet edge-to-edge and the title bar owns the panel toggles.
   return (
     <div
       style={{
