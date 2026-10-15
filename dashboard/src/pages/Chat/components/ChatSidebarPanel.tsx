@@ -24,7 +24,7 @@ interface ChatSidebarPanelProps {
   sessionsHasMore: boolean;
   sessionsLoadingMore: boolean;
   onLoadMoreSessions: () => void;
-  onFetchAllSessions: () => void;
+  onFetchAllSessions: () => Promise<boolean>;
   onSelectSession: (sessionId: string, agentId: string) => void;
   onAgentSelect: (agentId: string) => void;
   /** Start a fresh chat from an expert row (classic + minimal). */

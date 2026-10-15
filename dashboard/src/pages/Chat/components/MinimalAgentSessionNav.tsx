@@ -676,7 +676,9 @@ export default function MinimalAgentSessionNav({
                 onClick={() => openFolderAndSelect(agent.agent_id)}
               >
                 <span className={styles.agentNameCluster}>
-                  <span className={styles.minimalAgentName}>{agent.name}</span>
+                  <span className={styles.minimalAgentName} title={agent.name}>
+            {agent.name}
+          </span>
                   {ordering.pinned ? (
                     <span
                       className={styles.sessionRowPinIndicator}
